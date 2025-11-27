@@ -1,0 +1,42 @@
+services:                     # ここで「起動するコンテナたち（サービス）一覧」を定義する
+  web:                        # 1つ目のサービス: Web アプリ (Flask + Gunicorn)
+    build: .                  # カレントディレクトリの Dockerfile からイメージをビルドする
+    env_file: .env            # .env ファイルを読み込んで環境変数として渡す
+    volumes:
+      - data:/data            # 名前付きボリューム "data" をコンテナ内の /data にマウント
+                              # → SQLite の search.db をここに置いて、web と crawler で共有する想定
+    ports:
+      - "80:8080"             # ホスト側 80 番ポート → コンテナ側 8080 番ポートに転送
+                              # → ブラウザでは http://localhost/ でアクセスできる
+    depends_on:
+      - redis                 # redis コンテナ（のプロセス）が起動するまで待つ（ready かどうかまでは見ない）
+      - crawler                # crawler コンテナも起動順の依存関係に含める（こちらも ready までは保証しない）
+    restart: unless-stopped   # 手動で stop しない限り、落ちたら自動で再起動する
+
+  crawler:                    # 2つ目のサービス: クローラ (search.crawl_manager を動かす)
+    build: .                  # web と同じ Dockerfile / イメージを使う
+    env_file: .env            # 同じく .env から環境変数を読み込む
+    depends_on:
+      - redis                 # キュー用の Redis コンテナの起動を待つ（ready までは保証しない）
+    volumes:
+      - data:/data            # web と同じ "data" ボリュームを /data にマウント
+                              # → 同じ /data/search.db を共有するので、crawler が書いた DB を web が検索できる
+    # Gunicorn ではなく、crawl_manager をそのまま起動
+    command: ["python", "-m", "search.crawl_manager"]
+                              # Dockerfile の CMD (gunicorn) を上書きして、
+                              # このコンテナでは「クローラ専用プロセス」として動かす
+    restart: unless-stopped   # こちらも落ちたら自動再起動（手動 stop までは動かし続ける）
+
+  redis:                      # 3つ目のサービス: キュー＆状態管理用の Redis
+    image: redis:7-alpine     # 公式 Redis イメージ (軽量版 Alpine Linux ベース)
+    command: ["redis-server", "--appendonly", "yes"]
+                              # Redis を起動するときのコマンドを指定
+                              # --appendonly yes: 永続化(AOF)を有効化してデータをディスクに書き出す
+    volumes:
+      - redisdata:/data       # 名前付きボリューム "redisdata" をコンテナの /data にマウント
+                              # → Redis の永続データ(AOF/スナップショット)をここに保存
+    restart: unless-stopped   # 同じく自動再起動設定
+
+volumes:                      # 上で使った名前付きボリュームをここで宣言する
+  data: {}                    # web / crawler で共有するデータ領域 (SQLite の DB 向け)
+  redisdata: {}               # redis 用のデータ永続化ボリューム

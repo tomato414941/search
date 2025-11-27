@@ -1,0 +1,13 @@
+# requirements.txt
+
+# --- Runtime dependencies ---
+flask
+gunicorn
+requests
+beautifulsoup4
+redis
+
+# --- Type stubs (for mypy / IDE) ---
+types-requests
+# types-beautifulsoup4
+# types-redis
